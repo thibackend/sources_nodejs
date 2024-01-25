@@ -1,0 +1,6 @@
+misc/public/uploads/*
+
+build/
+node_modules/
+
+!*.gitkeep

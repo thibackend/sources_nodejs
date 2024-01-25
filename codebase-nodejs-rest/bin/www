@@ -1,0 +1,114 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+const http = require('http')
+const cluster = require('cluster')
+const numCPUs = require('os').cpus().length
+
+const common = require('../pkg/utils/common')
+const log = require('../pkg/utils/logger')
+
+const config = require('../pkg/config')
+const app = require('../pkg/app')
+
+const ctx = 'service-main'
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+const port = normalizePort(config.schema.get('server.port'))
+app.set('port', port)
+
+/**
+ * Create HTTP server.
+ */
+
+const server = http.createServer(app)
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+if (cluster.isMaster) {
+  log.info(ctx, 'Master Started at PID ' + process.pid)
+
+  if (config.schema.get('workers') == 0) {
+    config.schema.set('workers', numCPUs)
+  }
+
+  if (config.schema.get('workers') <= numCPUs) {
+    for (let i = 0; i < config.schema.get('workers'); i++) {
+      cluster.fork()
+    }
+  } else {
+    log.error(ctx, 'Error! Worker number is greater than maximum CPUs')
+    process.exit(1)
+  }
+
+  cluster.on('exit', (worker, code, signal) => {
+    log.warn(ctx, 'Worker Started at PID ' + worker.process.pid + ' Has Died, Restarting Worker')
+    cluster.fork()
+  })
+} else {
+  server.listen(port, config.schema.get('server.address'))
+
+  server.on('listening', onListening)
+  server.on('error', onError)
+}
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  let port = parseInt(val, 10)
+
+  if (isNaN(port)) {
+    return val
+  }
+
+  if (port >= 0) {
+    return port
+  }
+
+  return false
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  let addr = server.address()
+
+  if (error.syscall !== 'listen') {
+    log.error(ctx, common.strToTitleCase(error.message))
+  }
+
+  // Handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      log.error(ctx, 'Worker Started at PID ' + process.pid + ' in Address ' + addr.address + ':' + addr.port + ' Require Elevated Privileges')
+      break
+    case 'EADDRINUSE':
+      log.error(ctx, 'Worker Started at PID ' + process.pid + ' in Address ' + addr.address + ':' + addr.port + ' is Already in Use')
+      break
+    default:
+      log.error(ctx, common.strToTitleCase(error.message))
+  }
+
+  process.exit(1)
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  let addr = server.address()
+  log.info(ctx, 'Worker Started at PID ' + process.pid + ' Listen on ' + addr.address + ':' + addr.port)
+}
